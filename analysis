@@ -1,0 +1,77 @@
+#!/bin/bash
+
+# This script analise the .log info from the calculations.
+# Script made by Ely Miranda, PhD student at Physics Institute in Universidade de São Paulo
+# Last update: 22/03/2023
+# Any question or suggestion write me: ely.miranda@usp.br :)
+
+### Input important informations
+
+if [ $# -eq 0 ]; then  # If no argument (input) is given, end the script.
+    echo "No input provided"
+    exit 1
+fi
+
+### The G4(MP2) energy calculation is E(G4MP2) = E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] + DE(G3MP2largeXP) + DE(HF) + DE(HLC) + ZPE + DE(SO)
+### Let us do it by parts
+
+# 1) E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)]
+E_CCSD=$(grep "CCSD(T)= " $1 | cut -d "=" -f 2 | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc)
+
+# 2) DE(G3MP2largeXP) = E[MP2(FC)/G3MP2largeXP//B3LYP/6-31G(2df,p)] - E[MP2(FC)/6-31G(d)//B3LYP/6-31G(2df,p)]
+E_MP2_1=$(grep "EUMP2 =" $1 | cut -d "=" -f 3 | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+E_MP2_2=$(grep "EUMP2 =" $1 | cut -d "=" -f 3 | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '1p')
+DE_G3MP2largeXP=$(echo "$E_MP2_1 - $E_MP2_2" | bc)
+
+# 3) DE(HF) = E[RHF/limit] - E[RHF/G3MP2largeXP]
+# E[RHF/limit] = (E[RHF/mod-aug-cc-pVQZ] - E[RHF/mod-aug-cc-pVTZ] exp(-alpha)) / (1 - exp(-alpha))
+alpha=1.63
+if [ $SPIN == 1 ]; then
+E_pVQZ=$(grep "E(HF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '4p')
+E_pVTZ=$(grep "E(HF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '3p')
+E_RHF=$(grep "E(HF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+else
+E_pVQZ=$(grep "E(UHF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '4p')
+E_pVTZ=$(grep "E(UHF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '3p')
+E_RHF=$(grep "E(HF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+fi
+E_LIMIT=$(echo "($E_pVQZ - $E_pVTZ) * (1-e($alpha))" | bc)
+DE_HF=$(echo "$E_LIMIT - $E_RHF" | bc)
+
+# 4) DE(HLC) 
+if [ $SPIN == 1 ]; then
+    # DE(HLC) = -An(beta) 
+    A=0.009472
+    beta=$(grep " beta electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+    DE_HCL=$(echo "- A * $beta" | bc)
+else
+    # DE(HLC) = -An(alpha) - B(n(beta) - n(alpha))
+    A=0.009769
+    B=0.003102
+    beta=$(grep " beta electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+    alpha=$(grep " alpha electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+    DE_HCL=$(echo "- A * $alpha - B * ($alpha - $beta)" | bc)
+fi
+
+# 5) ZPE = ZPE[B3LYP/6-31G(2df,p)], scaling frequencies by 0.9854
+ZPE=(grep "Zero-point correction="$1  | awk '{print $3}' | sed 's/ //g' | bc)
+ZPE=$(echo " $ZPE * 0.9854 " | bc)
+
+
+### Final calculation
+E_FINAL=$(echo " $E_CCSD + $DE_G3MP2largeXP + $DE_HF + $DE_HLC + $ZPE " | bc)
+
+echo "
+
+E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] energy is: $E_CCSD  Hartree
+DE(G3MP2largeXP) energy is: $DE_G3MP2largeXP Hartree
+DE(HF) energy is: $DE_HF Hartree
+DE(HCL) energy is: $DE_HCL Hartree
+ZPE energy is: $$ZPE Hartree
+
+The total energy for 0K is:
+E(G4MP2) = E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] + DE(G3MP2largeXP) + DE(HF) + DE(HLC) + ZPE + DE(SO)
+E(G4MP2) = $E_FINAL Hartree
+
+
+"

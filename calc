@@ -1,0 +1,88 @@
+#!/bin/bash
+
+# This script construct the G09 manual input for G4(MP2) calculation
+# Script made by Ely Miranda, PhD student at Physics Institute in Universidade de São Paulo
+# Last update: 22/03/2023
+# Any question or suggestion write me: ely.miranda@usp.br :)
+
+### Input important informations
+
+if [ $# -eq 0 ]; then  # If no argument (input) is given, end the script.
+    echo "No input provided"
+    exit 1
+fi
+
+FOLDER=$(dirname $(readlink -f $1))  # Track the job folder
+
+CODE=$(grep "^CODE" $1 | cut -d "=" -f 2 | sed 's/ //g')
+CORE=$(grep "^CORE" $1 | cut -d "=" -f 2 | sed 's/ //g')
+MEMORY=$(grep "^MEMORY" $1 | cut -d "=" -f 2 | sed 's/ //g')
+
+MOLECULE=$(grep "^NAME" $1 | cut -d "=" -f 2 | sed 's/ //g')
+CHARGE=$(grep "^CHARGE" $1 | cut -d "=" -f 2 | sed 's/ //g')
+SPIN=$(grep "^SPIN" $1 | cut -d "=" -f 2 | sed 's/ //g')
+
+ILINE=$(grep -n "BEGIN_GEO" $1 | awk '{print $1}' | sed 's/[^0-9]*//g')  # Find the initial line of the states info
+FLINE=$(grep -n "END_GEO" $1 | awk '{print $1}' | sed 's/[^0-9]*//g')  # Find the final line of the states info
+sed -n "$((${ILINE}+1)),$((${FLINE}-1)) p" $1 > $FOLDER/geo  # Save the states info
+
+
+### G4(MP2) input production
+
+if [ $CODE == g09 ]; then
+
+echo "%chk=${MOLECULE}.chk
+%NProcShared=$CORE
+%mem=$MEMORY
+#B3LYP/6-31G(2df,p) Opt
+
+Optimization
+
+$CHARGE $SPIN" > $FOLDER/${MOLECULE}.inp
+cat $FOLDER/geo >> $FOLDER/${MOLECULE}.inp
+echo "
+--link1--
+%chk=${MOLECULE}.chk
+%NProcShared=$CORE
+%mem=$MEMORY
+#N Geom=AllCheck Guess=TCheck SCRF=Check B3LYP/GTBas3 Freq
+
+Frequency
+
+--link1--
+%chk=${MOLECULE}.chk
+%NProcShared=$CORE
+%mem=$MEMORY
+#N Geom=AllCheck Guess=TCheck SCRF=Check SCF(maxcyc=1000) CCSD(T,E4T,FrzG4)/GTBas1
+
+CCSD
+
+--link1--
+%chk=${MOLECULE}.chk
+%NProcShared=$CORE
+%mem=$MEMORY
+#N Geom=AllCheck Guess=TCheck SCRF=Check SCF(maxcyc=1000,FullLinear) MP2=FrzG4/GTMP2LargeXP
+
+MP2
+
+--link1--
+%chk=${MOLECULE}.chk
+%NProcShared=$CORE
+%mem=$MEMORY
+#N Geom=AllCheck Guess=TCheck SCRF=Check SCF(maxcyc=1000) HF/GFHFB3 SCF=Tight
+
+HF1
+
+--link1--
+%chk=${MOLECULE}.chk
+%NProcShared=$CORE
+%mem=$MEMORY
+#N Geom=AllCheck Guess=TCheck SCRF=Check SCF(maxcyc=1000) HF/GFHFB4 SCF=Tight
+
+HF2
+
+" >> $FOLDER/${MOLECULE}.inp
+
+else
+echo "The $CODE code is not implemented yet. Try to use g09 instead." 
+fi
