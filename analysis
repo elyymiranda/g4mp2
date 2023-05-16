@@ -2,7 +2,7 @@
 
 # This script analise the .log info from the calculations.
 # Script made by Ely Miranda, PhD student at Physics Institute in Universidade de São Paulo
-# Last update: 22/03/2023
+# Last update: 16/05/2023
 # Any question or suggestion write me: ely.miranda@usp.br :)
 
 ### Input important informations
@@ -11,6 +11,58 @@ if [ $# -eq 0 ]; then  # If no argument (input) is given, end the script.
     echo "No input provided"
     exit 1
 fi
+
+FOLDER=$(dirname $(readlink -f $1))  # Track the job folder
+
+SPIN=$(grep "Multiplicity =" $1 | cut -d "=" -f 3 | sed -n '1p' | sed 's/ //g')
+ATOMS_NUMBER=$(grep "NAtoms=" $1 | awk '{print $2}' | sed -n '1p')
+
+### Core alpha and beta electrons counter
+
+GEO_LINE=$(grep -n "Charge" $1 | awk -F ':' '{print $1}' | head -1)
+sed -n "$(($GEO_LINE+1)),$(($GEO_LINE+$ATOMS_NUMBER))p" $1 > $FOLDER/tmp
+
+geometry_file="$FOLDER/tmp"
+
+core_electron_count=0
+
+while read -r line
+do
+  if [[ $line =~ ^\ *([A-Za-z]+)\ * ]]; then
+    atom_symbol="${BASH_REMATCH[1]}"
+
+    # Define the core electron counts for each atom symbol
+    case $atom_symbol in
+      H)
+        core_electrons=0
+        ;;
+      He|Li|Be|B|C|N|O|F|Ne)
+        core_electrons=2
+        ;;
+      Na|Mg|Al|Si|P|S|Cl|Ar)
+        core_electrons=10
+        ;;
+      K|Ca|Sc|Ti|V|Cr|Mn|Fe|Co|Ni|Cu|Zn|Ga|Ge|As|Se|Br|Kr)
+        core_electrons=18
+        ;;
+      Rb|Sr|Y|Zr|Nb|Mo|Tc|Ru|Rh|Pd|Ag|Cd|In|Sn|Sb|Te|I|Xe)
+        core_electrons=36
+        ;;
+      Cs|Ba|La|Ce|Pr|Nd|Pm|Sm|Eu|Gd|Tb|Dy|Ho|Er|Tm|Yb|Lu|Hf|Ta|W|Re|Os|Ir|Pt|Au|Hg|Tl|Pb|Bi|Th|Pa|U)
+        core_electrons=54
+        ;;
+      *)
+        core_electrons=0  # Set default to 0 for unrecognized atoms
+        ;;
+    esac
+
+    core_electron_count=$((core_electron_count + core_electrons))
+  fi
+done < "$geometry_file"
+
+TOTAL_CORE_ELECTRONS=$(($core_electron_count/2))
+
+rm $FOLDER/tmp
 
 ### The G4(MP2) energy calculation is E(G4MP2) = E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] + DE(G3MP2largeXP) + DE(HF) + DE(HLC) + ZPE + DE(SO)
 ### Let us do it by parts
@@ -27,47 +79,58 @@ DE_G3MP2largeXP=$(echo "$E_MP2_1 - $E_MP2_2" | bc)
 # E[RHF/limit] = (E[RHF/mod-aug-cc-pVQZ] - E[RHF/mod-aug-cc-pVTZ] exp(-alpha)) / (1 - exp(-alpha))
 alpha=1.63
 if [ $SPIN == 1 ]; then
-E_pVQZ=$(grep "E(HF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '4p')
-E_pVTZ=$(grep "E(HF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '3p')
-E_RHF=$(grep "E(HF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+E_pVQZ=$(grep "E(RHF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '4p')
+E_pVTZ=$(grep "E(RHF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '3p')
+E_RHF=$(grep "E(RHF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
 else
 E_pVQZ=$(grep "E(UHF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '4p')
 E_pVTZ=$(grep "E(UHF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '3p')
-E_RHF=$(grep "E(HF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+E_RHF=$(grep "E(UHF) =" $1  | awk '{print $5}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
 fi
-E_LIMIT=$(echo "($E_pVQZ - $E_pVTZ) * (1-e($alpha))" | bc)
+E_LIMIT=$(echo "($E_pVQZ - $E_pVTZ * e(- $alpha)) / (1 - e(- $alpha))" | bc -l)
 DE_HF=$(echo "$E_LIMIT - $E_RHF" | bc)
 
-# 4) DE(HLC) 
-if [ $SPIN == 1 ]; then
+# 4) DE(HLC)
+if [ $ATOMS_NUMBER == 1 ]; then
+    A=0.009721
+    B=0.002115
+    beta=$(grep " beta electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+    alpha=$(grep " alpha electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+    valence_beta=$(($beta-$TOTAL_CORE_ELECTRONS))
+    valence_alpha=$(($alpha-$TOTAL_CORE_ELECTRONS))
+    DE_HLC=$(echo "- $A * $valence_beta - $B * ( $valence_alpha - $valence_beta)" | bc)
+elif [ $SPIN == 1 ] && [ $ATOMS_NUMBER -ne 1 ]; then
     # DE(HLC) = -An(beta) 
     A=0.009472
     beta=$(grep " beta electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
-    DE_HCL=$(echo "- A * $beta" | bc)
+    valence_beta=$(($beta-$TOTAL_CORE_ELECTRON))
+    DE_HLC=$(echo "- $A * $valence_beta" | bc)
 else
     # DE(HLC) = -An(alpha) - B(n(beta) - n(alpha))
     A=0.009769
     B=0.003102
     beta=$(grep " beta electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
-    alpha=$(grep " alpha electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
-    DE_HCL=$(echo "- A * $alpha - B * ($alpha - $beta)" | bc)
+    alpha=$(grep " alpha electrons" $1  | awk '{print $1}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
+    valence_beta=$(($beta-$TOTAL_CORE_ELECTRONS))
+    valence_alpha=$(($alpha-$TOTAL_CORE_ELECTRONS))
+    DE_HLC=$(echo "- $A * $valence_beta - $B * ( $valence_alpha - $valence_beta)" | bc)
 fi
 
 # 5) ZPE = ZPE[B3LYP/6-31G(2df,p)], scaling frequencies by 0.9854
-ZPE=(grep "Zero-point correction="$1  | awk '{print $3}' | sed 's/ //g' | bc)
+ZPE=$(grep "Zero-point correction=" $1 | awk '{print $3}' | sed 's/ //g' | bc)
 ZPE=$(echo " $ZPE * 0.9854 " | bc)
 
 
 ### Final calculation
-E_FINAL=$(echo " $E_CCSD + $DE_G3MP2largeXP + $DE_HF + $DE_HLC + $ZPE " | bc)
+E_FINAL=$(echo "scale=6; $E_CCSD + $DE_G3MP2largeXP + $DE_HF + $DE_HLC + $ZPE" | bc)
 
 echo "
 
-E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] energy is: $E_CCSD  Hartree
+E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] energy is: $E_CCSD Hartree
 DE(G3MP2largeXP) energy is: $DE_G3MP2largeXP Hartree
 DE(HF) energy is: $DE_HF Hartree
-DE(HCL) energy is: $DE_HCL Hartree
-ZPE energy is: $$ZPE Hartree
+DE(HCL) energy is: $DE_HLC Hartree
+ZPE energy is: $ZPE Hartree
 
 The total energy for 0K is:
 E(G4MP2) = E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] + DE(G3MP2largeXP) + DE(HF) + DE(HLC) + ZPE + DE(SO)
@@ -75,3 +138,4 @@ E(G4MP2) = $E_FINAL Hartree
 
 
 "
+

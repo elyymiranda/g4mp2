@@ -61,7 +61,7 @@ CCSD
 %chk=${MOLECULE}.chk
 %NProcShared=$CORE
 %mem=$MEMORY
-#N Geom=AllCheck Guess=TCheck SCRF=Check SCF(maxcyc=1000,FullLinear) MP2=FrzG4/GTMP2LargeXP
+#N Geom=AllCheck Guess=TCheck SCRF=Check SCF(maxcyc=1000,FullLinear) MP2=(FrzG4,SemiDirect)/GTMP2LargeXP
 
 MP2
 
