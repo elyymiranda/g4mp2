@@ -92,7 +92,7 @@ DE_HF=$(echo "$E_LIMIT - $E_RHF" | bc)
 
 # 4) DE(HLC)
 if [ $ATOMS_NUMBER == 1 ]; then
-    A=0.009721
+    A=0.009741
     B=0.002115
     beta=$(grep " beta electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
     alpha=$(grep " alpha electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
@@ -136,6 +136,7 @@ The total energy for 0K is:
 E(G4MP2) = E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] + DE(G3MP2largeXP) + DE(HF) + DE(HLC) + ZPE + DE(SO)
 E(G4MP2) = $E_FINAL Hartree
 
+WARNING: The Spin-Orbit (SO) energy correction for atoms is not implemented yet.
 
 "
 
