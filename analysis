@@ -92,7 +92,7 @@ DE_HF=$(echo "$E_LIMIT - $E_RHF" | bc)
 
 # 4) DE(HLC)
 if [ $ATOMS_NUMBER == 1 ]; then
-    A=0.009721
+    A=0.009741
     B=0.002115
     beta=$(grep " beta electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
     alpha=$(grep " alpha electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
@@ -103,7 +103,7 @@ elif [ $SPIN == 1 ] && [ $ATOMS_NUMBER -ne 1 ]; then
     # DE(HLC) = -An(beta) 
     A=0.009472
     beta=$(grep " beta electrons" $1  | awk '{print $4}' | sed 's/ //g' | sed 's/D+\([0-9]\)/1*10^\1/g' | bc | sed -n '2p')
-    valence_beta=$(($beta-$TOTAL_CORE_ELECTRON))
+    valence_beta=$(($beta-$TOTAL_CORE_ELECTRONS))
     DE_HLC=$(echo "- $A * $valence_beta" | bc)
 else
     # DE(HLC) = -An(alpha) - B(n(beta) - n(alpha))
@@ -124,18 +124,54 @@ ZPE=$(echo " $ZPE * 0.9854 " | bc)
 ### Final calculation
 E_FINAL=$(echo "scale=6; $E_CCSD + $DE_G3MP2largeXP + $DE_HF + $DE_HLC + $ZPE" | bc)
 
+### Include temperature effects
+
+if [ -n "$2" ]; then
+     python3 free_energy_g09.py $1 $2 > $FOLDER/temperature_proprieties
+     CORRT1=$(tail -n 3 $FOLDER/temperature_proprieties | head -n 1 | cut -d: -f2- |  awk '{$1=$1};1')
+     CORRT2=$(tail -n 1 $FOLDER/temperature_proprieties | head -n 1 |  cut -d: -f2- |  awk '{$1=$1};1')
+     FREE_ENERGY=$(echo "$E_FINAL + $CORRT2 - $CORRT1" | bc)
+
+     echo "
+
+ => Analysis of thermochemistry quantities at T = 0 K <= 
+
+ E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] energy is: $E_CCSD Hartree
+ DE(G3MP2largeXP) energy is: $DE_G3MP2largeXP Hartree
+ DE(HF) energy is: $DE_HF Hartree
+ DE(HCL) energy is: $DE_HLC Hartree
+"
+    cat $FOLDER/temperature_proprieties
+
+    echo "
+
+ => Energy and Free Energy values  <= 
+
+ E (T=0)             = $E_FINAL Hartree
+ Free Energy (T=$2) = $FREE_ENERGY Hartree
+
+ WARNING: The Spin-Orbit (SO) energy correction for atoms is not implemented yet.
+"
+
+    rm $FOLDER/temperature_proprieties
+
+else
+
 echo "
 
-E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] energy is: $E_CCSD Hartree
-DE(G3MP2largeXP) energy is: $DE_G3MP2largeXP Hartree
-DE(HF) energy is: $DE_HF Hartree
-DE(HCL) energy is: $DE_HLC Hartree
-ZPE energy is: $ZPE Hartree
+ E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] energy is: $E_CCSD Hartree
+ DE(G3MP2largeXP) energy is: $DE_G3MP2largeXP Hartree
+ DE(HF) energy is: $DE_HF Hartree
+ DE(HCL) energy is: $DE_HLC Hartree
+ ZPE energy is: $ZPE Hartree
 
-The total energy for 0K is:
-E(G4MP2) = E[CCSD(T,FC)/6-31G(d)//B3LYP/6-31G(2df,p)] + DE(G3MP2largeXP) + DE(HF) + DE(HLC) + ZPE + DE(SO)
-E(G4MP2) = $E_FINAL Hartree
+ The total energy for 0K is:
+ E(G4MP2) = $E_FINAL Hartree
 
-
+ WARNING: The Spin-Orbit (SO) energy correction for atoms is not implemented yet.
 "
+
+fi
+
+
 
