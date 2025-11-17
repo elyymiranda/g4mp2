@@ -1,0 +1,34 @@
+# Vim swap files
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.pyc
+
+# Gaussian files
+*.chk
+*.fchk
+*.log
+*.out
+*.inp
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+geo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Keep input templates
+!inputs/*
